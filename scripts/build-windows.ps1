@@ -5,6 +5,7 @@ $buildPython = Join-Path $projectRoot ".venv-build\Scripts\python.exe"
 $envFile = Join-Path $projectRoot ".env"
 $entryPoint = Join-Path $projectRoot "app.py"
 $assetsPath = Join-Path $projectRoot "assets"
+$iconPath = Join-Path $assetsPath "livro-caixa.ico"
 $hooksPath = Join-Path $projectRoot "packaging\hooks"
 $distPath = Join-Path $projectRoot "dist"
 $workPath = Join-Path $projectRoot "build"
@@ -14,6 +15,9 @@ if (-not (Test-Path -LiteralPath $buildPython)) {
 }
 if (-not (Test-Path -LiteralPath $envFile)) {
     throw "Arquivo .env ausente. Configure o Project URL e a Publishable key antes do build."
+}
+if (-not (Test-Path -LiteralPath $iconPath)) {
+    throw "Icone do aplicativo ausente: $iconPath"
 }
 
 $envContent = Get-Content -LiteralPath $envFile -Raw
@@ -51,6 +55,7 @@ try {
         --windowed `
         --onedir `
         --name LivroCaixa `
+        --icon $iconPath `
         --distpath $distPath `
         --workpath $workPath `
         --specpath $workPath `

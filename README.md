@@ -51,6 +51,7 @@ Dê dois cliques no arquivo `Abrir Livro Caixa.cmd` existente na pasta principal
 - Gráfico de pizza ampliado e centralizado na área disponível.
 - Fatias e legendas clicáveis para consultar datas, históricos e valores da categoria.
 - Login com sessão protegida pelo Windows e opção de manter o acesso conectado.
+- Ícone próprio do Livro Caixa, com o “F” laranja da Formatec e um livro aberto.
 - Livro diário de lançamentos em formato de planilha, inspirado no modelo em papel.
 - Tela de lançamentos sem cabeçalho redundante, deixando mais linhas visíveis.
 - Colunas de histórico, categoria, entradas e saídas.
@@ -83,6 +84,6 @@ Depois, gere o executável e o ZIP:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1
 ```
 
-O ZIP pronto fica em `release\LivroCaixa-v0.2.0-Windows.zip`. Depois de extrair o ZIP inteiro, execute `Instalar Livro Caixa.cmd`. O instalador copia o aplicativo para a pasta de programas do usuário e cria atalhos na Área de Trabalho e no menu Iniciar.
+O ZIP pronto fica em `release\LivroCaixa-v<VERSÃO>-Windows.zip`. Depois de extrair o ZIP inteiro, execute `Instalar Livro Caixa.cmd`. O instalador copia o aplicativo para a pasta de programas do usuário e cria atalhos na Área de Trabalho e no menu Iniciar.
 
 As pastas de compilação e os pacotes gerados não são enviados ao GitHub. O arquivo `.env` também permanece fora do repositório.

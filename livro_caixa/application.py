@@ -38,6 +38,7 @@ class LivroCaixaApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Livro Caixa da Marcenaria")
+        self._configure_window_icon()
         self.geometry("1220x760")
         self.minsize(1024, 680)
         self.configure(background=COLORS["background"])
@@ -96,6 +97,14 @@ class LivroCaixaApp(tk.Tk):
         self._recalculate_totals()
         self.show_page("Resumo")
         self.deiconify()
+
+    def _configure_window_icon(self) -> None:
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "livro-caixa-icon.png"
+        try:
+            self._window_icon = tk.PhotoImage(file=icon_path)
+            self.iconphoto(True, self._window_icon)
+        except tk.TclError:
+            self._window_icon = None
 
     def _authenticate(self) -> bool:
         refresh_token = self.session_store.load()
