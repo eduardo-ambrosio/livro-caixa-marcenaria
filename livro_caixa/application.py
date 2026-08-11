@@ -1,0 +1,546 @@
+from __future__ import annotations
+
+import tkinter as tk
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+from tkinter import messagebox, ttk
+
+from .cashbook import CashBookSheet
+from .categories import CategoryStore
+from .category_dialog import CategoryManagerDialog
+from .category_details_dialog import CategoryDetailsDialog
+from .entry_dialog import NewEntryDialog
+from .models import Entry, sample_entries
+from .theme import COLORS, FONTS, configure_ttk, make_button
+from .widgets import BorderedFrame, ExpenseChart, MetricCard, format_brl
+
+
+class LivroCaixaApp(tk.Tk):
+    MONTH_NAMES = (
+        "Janeiro",
+        "Fevereiro",
+        "Março",
+        "Abril",
+        "Maio",
+        "Junho",
+        "Julho",
+        "Agosto",
+        "Setembro",
+        "Outubro",
+        "Novembro",
+        "Dezembro",
+    )
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.title("Livro Caixa da Marcenaria")
+        self.geometry("1220x760")
+        self.minsize(1024, 680)
+        self.configure(background=COLORS["background"])
+        configure_ttk(self)
+
+        self.category_store = CategoryStore()
+        self.categories = self.category_store.load()
+        self.entries: list[Entry] = sample_entries()
+        self.income = Decimal("0")
+        self.expense = Decimal("0")
+        self.expenses_by_category: dict[str, Decimal] = {}
+        self.nav_buttons: dict[str, tk.Button] = {}
+        self.active_page = "Resumo"
+        self.expense_chart_mode = "bars"
+        self.selected_month = date.today().replace(day=1)
+        self.period_var = tk.StringVar(value=self._format_month(self.selected_month))
+        self.month_selector_var = tk.StringVar(value=self._format_month(self.selected_month))
+        self.month_options = self._build_month_options()
+        self.month_lookup = {self._format_month(item): item for item in self.month_options}
+
+        self._build_titlebar()
+        self._build_body()
+        self._recalculate_totals()
+        self.show_page("Resumo")
+
+    def _build_titlebar(self) -> None:
+        titlebar = tk.Frame(self, background=COLORS["surface"], height=84)
+        titlebar.pack(fill="x")
+        titlebar.pack_propagate(False)
+
+        brand_area = tk.Frame(titlebar, background=COLORS["surface"])
+        brand_area.pack(side="left", padx=(16, 27))
+        logo_path = Path(__file__).resolve().parent.parent / "assets" / "logo-cozinhas-formatec-v2.png"
+        try:
+            self.brand_logo = tk.PhotoImage(file=str(logo_path))
+            tk.Label(
+                brand_area,
+                image=self.brand_logo,
+                background=COLORS["surface"],
+                borderwidth=0,
+            ).pack(side="left", pady=7)
+        except tk.TclError:
+            tk.Label(
+                brand_area,
+                text="Cozinhas Formatec",
+                font=FONTS["brand"],
+                foreground=COLORS["text"],
+                background=COLORS["surface"],
+            ).pack(side="left", pady=25)
+
+        nav = tk.Frame(titlebar, background=COLORS["surface"])
+        nav.pack(side="left", fill="y")
+        for icon, page in (("▦", "Resumo"), ("↔", "Lançamentos")):
+            button = tk.Button(
+                nav,
+                text=f"{icon}  {page}",
+                command=lambda selected=page: self.show_page(selected),
+                font=FONTS["body_bold"],
+                foreground=COLORS["muted"],
+                background=COLORS["surface"],
+                activebackground=COLORS["surface_soft"],
+                activeforeground=COLORS["green"],
+                padx=18,
+                pady=9,
+                relief="flat",
+                borderwidth=0,
+                cursor="hand2",
+            )
+            button.pack(side="left", padx=(0, 6), pady=19)
+            self.nav_buttons[page] = button
+
+        status_area = tk.Frame(titlebar, background=COLORS["surface"])
+        status_area.pack(side="right", padx=24)
+        tk.Label(
+            status_area,
+            textvariable=self.period_var,
+            font=FONTS["body"],
+            foreground=COLORS["muted"],
+            background=COLORS["surface"],
+        ).pack(anchor="e")
+        tk.Label(
+            status_area,
+            text="●  Backup em dia",
+            font=FONTS["small"],
+            foreground=COLORS["green"],
+            background=COLORS["surface"],
+        ).pack(anchor="e", pady=(2, 0))
+        tk.Frame(self, background=COLORS["border"], height=1).pack(fill="x")
+
+    def _build_body(self) -> None:
+        body = tk.Frame(self, background=COLORS["background"])
+        body.pack(fill="both", expand=True)
+
+        self.content = tk.Frame(body, background=COLORS["background"])
+        self.content.pack(fill="both", expand=True, padx=27, pady=22)
+
+    def show_page(self, page: str) -> None:
+        self.active_page = page
+        for name, button in self.nav_buttons.items():
+            is_active = name == page
+            button.configure(
+                background=COLORS["surface_soft"] if is_active else COLORS["surface"],
+                foreground=COLORS["green"] if is_active else COLORS["muted"],
+            )
+
+        for child in self.content.winfo_children():
+            child.destroy()
+
+        if page == "Resumo":
+            self.content.pack_configure(pady=22)
+            self._build_dashboard()
+        elif page == "Lançamentos":
+            self.content.pack_configure(pady=(10, 18))
+            self._build_cashbook()
+        else:
+            self.content.pack_configure(pady=22)
+            self._build_placeholder(page)
+
+    def _build_cashbook(self) -> None:
+        initial_date = self._initial_day_for_selected_month()
+        sheet = CashBookSheet(
+            self.content,
+            self._entries_for_date,
+            self._save_page_entries,
+            self.categories,
+            self._manage_categories,
+            initial_date=initial_date,
+            date_changed=self._cashbook_date_changed,
+        )
+        sheet.pack(fill="both", expand=True)
+
+    def _build_header(self, title: str, subtitle: str, show_new_entry: bool) -> None:
+        header = tk.Frame(self.content, background=COLORS["background"], height=70)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+
+        text = tk.Frame(header, background=COLORS["background"])
+        text.pack(side="left", anchor="n")
+        tk.Label(
+            text,
+            text=title,
+            font=FONTS["heading"],
+            foreground=COLORS["text"],
+            background=COLORS["background"],
+        ).pack(anchor="w")
+        tk.Label(
+            text,
+            text=subtitle,
+            font=FONTS["body"],
+            foreground=COLORS["muted"],
+            background=COLORS["background"],
+        ).pack(anchor="w", pady=(2, 0))
+
+        if show_new_entry:
+            make_button(header, "＋  Novo lançamento", self.open_new_entry, primary=True).pack(side="right", anchor="n")
+
+    def _build_dashboard(self) -> None:
+        self._build_header(
+            "Resumo do mês",
+            f"Movimentação de {self._format_month(self.selected_month).lower()}.",
+            True,
+        )
+
+        period_bar = tk.Frame(self.content, background=COLORS["background"])
+        period_bar.pack(fill="x", pady=(1, 13))
+        tk.Label(
+            period_bar,
+            text="Mês exibido:",
+            font=FONTS["body_bold"],
+            foreground=COLORS["text"],
+            background=COLORS["background"],
+        ).pack(side="left", padx=(0, 8))
+        make_button(period_bar, "‹", lambda: self._shift_month(-1), width=2).pack(side="left")
+        month_selector = ttk.Combobox(
+            period_bar,
+            textvariable=self.month_selector_var,
+            values=tuple(self._format_month(item) for item in self.month_options),
+            state="readonly",
+            width=21,
+            style="Livro.TCombobox",
+            font=("Segoe UI", 14, "bold"),
+        )
+        month_selector.pack(side="left", padx=7)
+        month_selector.bind("<<ComboboxSelected>>", self._month_selected)
+        make_button(period_bar, "›", lambda: self._shift_month(1), width=2).pack(side="left")
+        make_button(period_bar, "Mês atual", self._go_to_current_month).pack(side="left", padx=(8, 0))
+
+        metrics = tk.Frame(self.content, background=COLORS["background"])
+        metrics.pack(fill="x", pady=(0, 15))
+        for column in range(3):
+            metrics.columnconfigure(column, weight=1, uniform="metrics")
+
+        self.income_card = MetricCard(metrics, "Entradas", self.income, "↑ Recebimentos do mês", COLORS["green"])
+        self.expense_card = MetricCard(metrics, "Saídas", self.expense, "↓ Pagamentos do mês", COLORS["red"])
+        self.balance_card = MetricCard(metrics, "Saldo", self.income - self.expense, "✓ Resultado positivo", COLORS["brown"])
+        self.income_card.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        self.expense_card.grid(row=0, column=1, sticky="nsew", padx=7)
+        self.balance_card.grid(row=0, column=2, sticky="nsew", padx=(7, 0))
+
+        lower = tk.Frame(self.content, background=COLORS["background"])
+        lower.pack(fill="both", expand=True)
+        lower.columnconfigure(0, weight=6)
+        lower.columnconfigure(1, weight=5)
+        lower.rowconfigure(0, weight=1)
+
+        expenses_panel = BorderedFrame(lower)
+        expenses_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        expenses_body = expenses_panel.body
+        chart_header = tk.Frame(expenses_body, background=COLORS["surface"])
+        chart_header.pack(fill="x", padx=20, pady=(15, 4))
+        tk.Label(
+            chart_header,
+            text="Onde mais gastou",
+            font=FONTS["section"],
+            foreground=COLORS["text"],
+            background=COLORS["surface"],
+        ).pack(side="left", anchor="center")
+        self.chart_pie_button = make_button(
+            chart_header,
+            "Pizza (%)",
+            lambda: self._set_expense_chart_mode("pie"),
+        )
+        self.chart_pie_button.pack(side="right")
+        self.chart_bars_button = make_button(
+            chart_header,
+            "Linhas",
+            lambda: self._set_expense_chart_mode("bars"),
+        )
+        self.chart_bars_button.pack(side="right", padx=(0, 7))
+        self.expense_chart = ExpenseChart(
+            expenses_body,
+            self.expenses_by_category,
+            mode=self.expense_chart_mode,
+            on_category_click=self._show_category_details,
+        )
+        self.expense_chart.pack(fill="both", expand=True, padx=20)
+        self.expense_chart.after_idle(self.expense_chart.draw)
+        self.chart_hint_var = tk.StringVar()
+        tk.Label(
+            expenses_body,
+            textvariable=self.chart_hint_var,
+            font=FONTS["small"],
+            foreground=COLORS["muted"],
+            background=COLORS["surface"],
+        ).pack(anchor="w", padx=20, pady=(0, 16))
+        self._update_chart_mode_controls()
+
+        recent_panel = BorderedFrame(lower)
+        recent_panel.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        tk.Label(
+            recent_panel.body,
+            text="Últimos lançamentos",
+            font=FONTS["section"],
+            foreground=COLORS["text"],
+            background=COLORS["surface"],
+        ).pack(anchor="w", padx=20, pady=(18, 9))
+        self.recent_list = tk.Frame(recent_panel.body, background=COLORS["surface"])
+        self.recent_list.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+        self._populate_recent_entries()
+
+    def _build_placeholder(self, page: str) -> None:
+        self._build_header(page, "Esta tela será construída na próxima etapa do protótipo.", False)
+        panel = BorderedFrame(self.content)
+        panel.pack(fill="both", expand=True, pady=(7, 0))
+        center = tk.Frame(panel.body, background=COLORS["surface"])
+        center.place(relx=0.5, rely=0.44, anchor="center")
+        tk.Label(
+            center,
+            text="Em construção",
+            font=FONTS["section"],
+            foreground=COLORS["text"],
+            background=COLORS["surface"],
+        ).pack(pady=(0, 8))
+        tk.Label(
+            center,
+            text="A navegação já funciona. O conteúdo desta área será desenvolvido em seguida.",
+            font=FONTS["body"],
+            foreground=COLORS["muted"],
+            background=COLORS["surface"],
+        ).pack(pady=(0, 18))
+        make_button(center, "Voltar ao resumo", lambda: self.show_page("Resumo"), primary=True).pack()
+
+    def _populate_recent_entries(self) -> None:
+        for child in self.recent_list.winfo_children():
+            child.destroy()
+
+        month_entries = [
+            entry
+            for entry in self.entries
+            if entry.date.year == self.selected_month.year
+            and entry.date.month == self.selected_month.month
+        ]
+        month_entries.sort(key=lambda entry: entry.date, reverse=True)
+        if not month_entries:
+            tk.Label(
+                self.recent_list,
+                text="Nenhum lançamento registrado neste mês.",
+                font=FONTS["body"],
+                foreground=COLORS["muted"],
+                background=COLORS["surface"],
+            ).pack(anchor="center", pady=42)
+            return
+
+        for entry in month_entries[:5]:
+            row = tk.Frame(self.recent_list, background=COLORS["surface"], height=61)
+            row.pack(fill="x")
+            row.pack_propagate(False)
+
+            text_area = tk.Frame(row, background=COLORS["surface"])
+            text_area.pack(side="left", fill="both", expand=True, pady=9)
+            tk.Label(
+                text_area,
+                text=entry.description,
+                font=FONTS["body_bold"],
+                foreground=COLORS["text"],
+                background=COLORS["surface"],
+            ).pack(anchor="w")
+            day = "Hoje" if entry.date == date.today() else entry.date.strftime("%d/%m")
+            tk.Label(
+                text_area,
+                text=f"{day} · {entry.category}",
+                font=FONTS["small"],
+                foreground=COLORS["muted"],
+                background=COLORS["surface"],
+            ).pack(anchor="w", pady=(2, 0))
+
+            sign = "+ " if entry.is_income else "− "
+            tk.Label(
+                row,
+                text=sign + format_brl(entry.value),
+                font=FONTS["body_bold"],
+                foreground=COLORS["green"] if entry.is_income else COLORS["red"],
+                background=COLORS["surface"],
+            ).pack(side="right", padx=(10, 0))
+            tk.Frame(self.recent_list, background=COLORS["border"], height=1).pack(fill="x")
+
+    def _set_expense_chart_mode(self, mode: str) -> None:
+        self.expense_chart_mode = "pie" if mode == "pie" else "bars"
+        self.expense_chart.set_mode(self.expense_chart_mode)
+        self._update_chart_mode_controls()
+
+    def _update_chart_mode_controls(self) -> None:
+        buttons = (
+            (self.chart_bars_button, self.expense_chart_mode == "bars"),
+            (self.chart_pie_button, self.expense_chart_mode == "pie"),
+        )
+        for button, active in buttons:
+            button.configure(
+                background=COLORS["green"] if active else COLORS["surface_soft"],
+                foreground=COLORS["white"] if active else COLORS["text"],
+                activebackground=COLORS["green_hover"] if active else COLORS["border"],
+                activeforeground=COLORS["white"] if active else COLORS["text"],
+            )
+        self.chart_hint_var.set(
+            "Clique em uma fatia ou categoria para ver todos os lançamentos."
+            if self.expense_chart_mode == "pie"
+            else "Comparação dos valores gastos por categoria."
+        )
+
+    def _show_category_details(
+        self,
+        display_name: str,
+        category_names: tuple[str, ...],
+    ) -> None:
+        selected = set(category_names)
+        entries = [
+            entry
+            for entry in self.entries
+            if not entry.is_income
+            and entry.category in selected
+            and entry.date.year == self.selected_month.year
+            and entry.date.month == self.selected_month.month
+        ]
+        CategoryDetailsDialog(
+            self,
+            display_name,
+            self._format_month(self.selected_month),
+            entries,
+        )
+
+    def open_new_entry(self) -> None:
+        initial_date = self._initial_day_for_selected_month()
+        dialog = NewEntryDialog(self, self.categories, initial_date=initial_date)
+        self.wait_window(dialog)
+        if dialog.result is None:
+            return
+
+        entry = dialog.result
+        self.entries.insert(0, entry)
+        self._recalculate_totals()
+        self.income_card.set_value(self.income)
+        self.expense_card.set_value(self.expense)
+        self.balance_card.set_value(self.income - self.expense)
+        self.expense_chart.values = self.expenses_by_category
+        self.expense_chart.draw()
+        self._populate_recent_entries()
+
+    def _entries_for_date(self, selected_date: date) -> list[Entry]:
+        return [entry for entry in self.entries if entry.date == selected_date]
+
+    def _save_page_entries(self, selected_date: date, page_entries: list[Entry]) -> None:
+        other_dates = [entry for entry in self.entries if entry.date != selected_date]
+        self.entries = page_entries + other_dates
+        self._recalculate_totals()
+
+    def _recalculate_totals(self) -> None:
+        month_entries = [
+            entry
+            for entry in self.entries
+            if entry.date.year == self.selected_month.year
+            and entry.date.month == self.selected_month.month
+        ]
+        self.income = sum(
+            (entry.value for entry in month_entries if entry.is_income),
+            Decimal("0"),
+        )
+        self.expense = sum(
+            (entry.value for entry in month_entries if not entry.is_income),
+            Decimal("0"),
+        )
+        categories: dict[str, Decimal] = {}
+        for entry in month_entries:
+            if entry.is_income:
+                continue
+            categories[entry.category] = categories.get(entry.category, Decimal("0")) + entry.value
+        self.expenses_by_category = categories
+
+    def _build_month_options(self) -> list[date]:
+        current_year = date.today().year
+        return [
+            date(year, month, 1)
+            for year in range(current_year - 5, current_year + 2)
+            for month in range(1, 13)
+        ]
+
+    def _format_month(self, value: date) -> str:
+        return f"{self.MONTH_NAMES[value.month - 1]} de {value.year}"
+
+    @staticmethod
+    def _add_months(value: date, amount: int) -> date:
+        month_index = value.year * 12 + value.month - 1 + amount
+        return date(month_index // 12, month_index % 12 + 1, 1)
+
+    def _set_selected_month(self, value: date, rebuild: bool = True) -> None:
+        self.selected_month = value.replace(day=1)
+        formatted = self._format_month(self.selected_month)
+        self.period_var.set(formatted)
+        self.month_selector_var.set(formatted)
+        self._recalculate_totals()
+        if rebuild and self.active_page == "Resumo":
+            self.show_page("Resumo")
+
+    def _shift_month(self, amount: int) -> None:
+        self._set_selected_month(self._add_months(self.selected_month, amount))
+
+    def _month_selected(self, _event=None) -> None:
+        selected = self.month_lookup.get(self.month_selector_var.get())
+        if selected is not None:
+            self._set_selected_month(selected)
+
+    def _go_to_current_month(self) -> None:
+        self._set_selected_month(date.today().replace(day=1))
+
+    def _initial_day_for_selected_month(self) -> date:
+        today = date.today()
+        if today.year == self.selected_month.year and today.month == self.selected_month.month:
+            return today
+        month_entries = [
+            entry.date
+            for entry in self.entries
+            if entry.date.year == self.selected_month.year
+            and entry.date.month == self.selected_month.month
+        ]
+        return max(month_entries) if month_entries else self.selected_month
+
+    def _cashbook_date_changed(self, selected_date: date) -> None:
+        month = selected_date.replace(day=1)
+        if month != self.selected_month:
+            self._set_selected_month(month, rebuild=False)
+
+    def _manage_categories(self) -> list[str]:
+        dialog = CategoryManagerDialog(self, self.categories)
+        self.wait_window(dialog)
+        if dialog.result is None:
+            return list(self.categories)
+
+        previous = list(self.categories)
+        try:
+            self.category_store.save(dialog.result)
+        except (OSError, ValueError) as error:
+            messagebox.showerror(
+                "Não foi possível salvar",
+                f"As categorias não puderam ser salvas.\n\n{error}",
+                parent=self,
+            )
+            return previous
+
+        self.categories = list(dialog.result)
+        fallback = "Outros" if "Outros" in self.categories else self.categories[0]
+        for operation, old_name, new_name in dialog.operations:
+            for entry in self.entries:
+                if entry.category != old_name:
+                    continue
+                if operation == "rename" and new_name is not None:
+                    entry.category = new_name
+                elif operation == "delete":
+                    entry.category = fallback
+        self._recalculate_totals()
+        return list(self.categories)
