@@ -321,7 +321,14 @@ class LivroCaixaApp(tk.Tk):
         for column in range(3):
             metrics.columnconfigure(column, weight=1, uniform="metrics")
 
-        self.income_card = MetricCard(metrics, "Entradas", self.income, "↑ Recebimentos do mês", COLORS["green"])
+        self.income_card = MetricCard(
+            metrics,
+            "Entradas",
+            self.income,
+            "↑ Clique para ver os recebimentos",
+            COLORS["green"],
+            command=self._show_income_details,
+        )
         self.expense_card = MetricCard(metrics, "Saídas", self.expense, "↓ Pagamentos do mês", COLORS["red"])
         self.balance_card = MetricCard(metrics, "Saldo", self.income - self.expense, "✓ Resultado positivo", COLORS["brown"])
         self.income_card.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
@@ -507,6 +514,22 @@ class LivroCaixaApp(tk.Tk):
             display_name,
             self._format_month(self.selected_month),
             entries,
+        )
+
+    def _show_income_details(self) -> None:
+        entries = [
+            entry
+            for entry in self.entries
+            if entry.is_income
+            and entry.date.year == self.selected_month.year
+            and entry.date.month == self.selected_month.month
+        ]
+        CategoryDetailsDialog(
+            self,
+            "Entradas",
+            self._format_month(self.selected_month),
+            entries,
+            detail_type="income",
         )
 
     def open_new_entry(self) -> None:

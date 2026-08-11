@@ -34,22 +34,26 @@ class MetricCard(BorderedFrame):
         value: Decimal,
         detail: str,
         accent: str,
+        command: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent, height=116)
         self.pack_propagate(False)
+        self.command = command
+        self.accent = accent
 
         accent_line = tk.Frame(self.body, height=4, background=accent)
         accent_line.pack(fill="x")
 
         content = tk.Frame(self.body, background=COLORS["surface"])
         content.pack(fill="both", expand=True, padx=17, pady=(11, 10))
-        tk.Label(
+        title_label = tk.Label(
             content,
             text=title,
             font=FONTS["body"],
             foreground=COLORS["muted"],
             background=COLORS["surface"],
-        ).pack(anchor="w")
+        )
+        title_label.pack(anchor="w")
         self.value_label = tk.Label(
             content,
             text=format_brl(value),
@@ -58,16 +62,32 @@ class MetricCard(BorderedFrame):
             background=COLORS["surface"],
         )
         self.value_label.pack(anchor="w", pady=(3, 1))
-        tk.Label(
+        detail_label = tk.Label(
             content,
             text=detail,
             font=FONTS["small"],
             foreground=COLORS["muted"],
             background=COLORS["surface"],
-        ).pack(anchor="w")
+        )
+        detail_label.pack(anchor="w")
+
+        if self.command is not None:
+            self.configure(takefocus=True, cursor="hand2")
+            for widget in (self, self.body, accent_line, content, title_label, self.value_label, detail_label):
+                widget.configure(cursor="hand2")
+                widget.bind("<Button-1>", self._activate)
+            self.bind("<Return>", self._activate)
+            self.bind("<space>", self._activate)
+            self.bind("<FocusIn>", lambda _event: self.configure(background=self.accent))
+            self.bind("<FocusOut>", lambda _event: self.configure(background=COLORS["border"]))
 
     def set_value(self, value: Decimal) -> None:
         self.value_label.configure(text=format_brl(value))
+
+    def _activate(self, _event: tk.Event | None = None) -> None:
+        if self.command is not None:
+            self.focus_set()
+            self.command()
 
 
 CategoryClick = Callable[[str, tuple[str, ...]], None]

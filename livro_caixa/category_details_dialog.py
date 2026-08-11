@@ -17,9 +17,15 @@ class CategoryDetailsDialog(tk.Toplevel):
         category_name: str,
         period_name: str,
         entries: list[Entry],
+        detail_type: str = "expense",
     ) -> None:
         super().__init__(parent)
-        self.title(f"Gastos — {category_name}")
+        is_income = detail_type == "income"
+        self.title(
+            f"Entradas — {period_name}"
+            if is_income
+            else f"Gastos — {category_name}"
+        )
         self.configure(background=COLORS["background"])
         self.geometry("900x590")
         self.minsize(760, 500)
@@ -38,14 +44,18 @@ class CategoryDetailsDialog(tk.Toplevel):
         title_area.pack(side="left")
         tk.Label(
             title_area,
-            text=category_name,
+            text="Entradas do mês" if is_income else category_name,
             font=FONTS["heading"],
             foreground=COLORS["text"],
             background=COLORS["background"],
         ).pack(anchor="w")
         tk.Label(
             title_area,
-            text=f"Gastos de {period_name.lower()}",
+            text=(
+                f"Recebimentos de {period_name.lower()}"
+                if is_income
+                else f"Gastos de {period_name.lower()}"
+            ),
             font=FONTS["body_bold"],
             foreground=COLORS["muted"],
             background=COLORS["background"],
@@ -60,7 +70,7 @@ class CategoryDetailsDialog(tk.Toplevel):
         total_box.pack(side="right")
         tk.Label(
             total_box,
-            text="TOTAL DA CATEGORIA",
+            text="TOTAL DE ENTRADAS" if is_income else "TOTAL DA CATEGORIA",
             font=("Segoe UI", 10, "bold"),
             foreground=COLORS["green"],
             background=COLORS["green_soft"],
@@ -137,13 +147,17 @@ class CategoryDetailsDialog(tk.Toplevel):
         footer = tk.Frame(outer, background=COLORS["background"])
         footer.pack(fill="x", pady=(14, 0))
         count = len(self.entries)
+        item_name = "entrada" if is_income else "lançamento"
+        found_word = "encontrada" if is_income else "encontrado"
         tk.Label(
             footer,
-            text=f"{count} lançamento{'s' if count != 1 else ''} encontrado{'s' if count != 1 else ''}.",
+            text=(
+                f"{count} {item_name}{'s' if count != 1 else ''} "
+                f"{found_word}{'s' if count != 1 else ''}."
+            ),
             font=FONTS["body"],
             foreground=COLORS["muted"],
             background=COLORS["background"],
         ).pack(side="left")
         make_button(footer, "Fechar", self.destroy, primary=True, width=10).pack(side="right")
         self.bind("<Escape>", lambda _event: self.destroy())
-

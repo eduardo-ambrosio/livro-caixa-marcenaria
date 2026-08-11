@@ -52,6 +52,7 @@ Dê dois cliques no arquivo `Abrir Livro Caixa.cmd` existente na pasta principal
 - Fatias e legendas clicáveis para consultar datas, históricos e valores da categoria.
 - Login com sessão protegida pelo Windows e opção de manter o acesso conectado.
 - Ícone próprio do Livro Caixa, com o “F” laranja da Formatec e um livro aberto.
+- Cartão de entradas clicável, com consulta de datas, históricos, categorias e valores do mês.
 - Livro diário de lançamentos em formato de planilha, inspirado no modelo em papel.
 - Tela de lançamentos sem cabeçalho redundante, deixando mais linhas visíveis.
 - Colunas de histórico, categoria, entradas e saídas.
