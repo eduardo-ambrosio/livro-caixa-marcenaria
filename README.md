@@ -56,3 +56,9 @@ Dê dois cliques no arquivo `Abrir Livro Caixa.cmd` existente na pasta principal
 - Navegação entre células com Enter e entre dias pelos botões da folha.
 
 Os dados ainda são demonstrativos e não permanecem depois que o programa fecha. A próxima etapa será conectar o aplicativo ao Supabase para persistência e sincronização entre computadores.
+
+## Banco de dados
+
+O esquema inicial seguro do Supabase está versionado em
+`supabase/migrations/20260811_001_initial_schema.sql`. Ele cria as categorias,
+os lançamentos, os índices e as políticas de acesso por usuário.
