@@ -53,7 +53,7 @@ Dê dois cliques no arquivo `Abrir Livro Caixa.cmd` existente na pasta principal
 - Login com sessão protegida pelo Windows e opção de manter o acesso conectado.
 - Livro diário de lançamentos em formato de planilha, inspirado no modelo em papel.
 - Tela de lançamentos sem cabeçalho redundante, deixando mais linhas visíveis.
-- Colunas de documento, histórico, categoria, entradas e saídas.
+- Colunas de histórico, categoria, entradas e saídas.
 - Navegação entre células com Enter e entre dias pelos botões da folha.
 
 Os dados de cada usuário ficam isolados pelas políticas de segurança do banco. O aplicativo usa somente a Publishable key; chaves administrativas não fazem parte do executável.
@@ -64,3 +64,25 @@ As migrações do Supabase estão versionadas em `supabase/migrations/`:
 
 1. `20260811_001_initial_schema.sql`: tabelas, índices, categorias padrão e políticas RLS.
 2. `20260811_002_sync_functions.sql`: salvamento atômico das folhas e edição segura das categorias.
+
+## Gerar o aplicativo para Windows
+
+O pacote é gerado com PyInstaller e funciona sem Python ou PyCharm instalado:
+
+Na primeira compilação, prepare o ambiente de build:
+
+```powershell
+py -3.12 -m venv .venv-build
+.\.venv-build\Scripts\python.exe -m pip install -r requirements-build.txt
+```
+
+Depois, gere o executável e o ZIP:
+
+```powershell
+.\scripts\build-windows.cmd
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1
+```
+
+O ZIP pronto fica em `release\LivroCaixa-v0.2.0-Windows.zip`. Depois de extrair o ZIP inteiro, execute `Instalar Livro Caixa.cmd`. O instalador copia o aplicativo para a pasta de programas do usuário e cria atalhos na Área de Trabalho e no menu Iniciar.
+
+As pastas de compilação e os pacotes gerados não são enviados ao GitHub. O arquivo `.env` também permanece fora do repositório.

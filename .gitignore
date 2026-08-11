@@ -2,12 +2,14 @@ __pycache__/
 *.py[cod]
 .idea/
 .venv/
+.venv-build/
 venv/
 .env
 .env.*
 !.env.example
 dist/
 build/
+release/
 *.spec
 tmp/
 backups/
