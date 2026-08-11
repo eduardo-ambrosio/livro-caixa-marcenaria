@@ -7,11 +7,14 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from .cashbook import CashBookSheet
-from .categories import CategoryStore
 from .category_dialog import CategoryManagerDialog
 from .category_details_dialog import CategoryDetailsDialog
+from .config import ConfigurationError, load_supabase_config
 from .entry_dialog import NewEntryDialog
-from .models import Entry, sample_entries
+from .login_dialog import LoginDialog
+from .models import Entry
+from .session_store import SessionStore
+from .supabase_client import CategoryRecord, SupabaseClient, SupabaseError, SupabaseRepository
 from .theme import COLORS, FONTS, configure_ttk, make_button
 from .widgets import BorderedFrame, ExpenseChart, MetricCard, format_brl
 
@@ -39,10 +42,27 @@ class LivroCaixaApp(tk.Tk):
         self.minsize(1024, 680)
         self.configure(background=COLORS["background"])
         configure_ttk(self)
+        self.withdraw()
 
-        self.category_store = CategoryStore()
-        self.categories = self.category_store.load()
-        self.entries: list[Entry] = sample_entries()
+        try:
+            config = load_supabase_config()
+        except ConfigurationError as error:
+            messagebox.showerror("Configuração incompleta", str(error), parent=self)
+            self.destroy()
+            return
+
+        self.client = SupabaseClient(config)
+        self.repository = SupabaseRepository(self.client)
+        self.session_store = SessionStore()
+        self.remember_session = False
+        self.client.on_session_updated = self._session_updated
+        if not self._authenticate():
+            self.destroy()
+            return
+
+        self.categories: list[str] = []
+        self.category_records: list[CategoryRecord] = []
+        self.entries: list[Entry] = []
         self.income = Decimal("0")
         self.expense = Decimal("0")
         self.expenses_by_category: dict[str, Decimal] = {}
@@ -54,11 +74,61 @@ class LivroCaixaApp(tk.Tk):
         self.month_selector_var = tk.StringVar(value=self._format_month(self.selected_month))
         self.month_options = self._build_month_options()
         self.month_lookup = {self._format_month(item): item for item in self.month_options}
+        self.sync_status_var = tk.StringVar(value="●  Sincronizado")
+
+        try:
+            self.category_records = self.repository.load_categories()
+            if not self.category_records:
+                raise SupabaseError("Nenhuma categoria foi encontrada para este usuário.")
+            self.categories = [category.name for category in self.category_records]
+            self._load_month_from_cloud(self.selected_month)
+        except SupabaseError as error:
+            messagebox.showerror(
+                "Não foi possível carregar os dados",
+                str(error),
+                parent=self,
+            )
+            self.destroy()
+            return
 
         self._build_titlebar()
         self._build_body()
         self._recalculate_totals()
         self.show_page("Resumo")
+        self.deiconify()
+
+    def _authenticate(self) -> bool:
+        refresh_token = self.session_store.load()
+        if refresh_token:
+            self.remember_session = True
+            try:
+                self.client.restore_session(refresh_token)
+                return True
+            except SupabaseError:
+                self.session_store.clear()
+                self.remember_session = False
+
+        dialog = LoginDialog(self, self.client.sign_in)
+        self.wait_window(dialog)
+        if dialog.result is None:
+            return False
+
+        session, self.remember_session = dialog.result
+        if self.remember_session:
+            try:
+                self.session_store.save(session.refresh_token)
+            except OSError:
+                self.remember_session = False
+        else:
+            self.session_store.clear()
+        return True
+
+    def _session_updated(self, session) -> None:
+        if self.remember_session:
+            try:
+                self.session_store.save(session.refresh_token)
+            except OSError:
+                self.remember_session = False
 
     def _build_titlebar(self) -> None:
         titlebar = tk.Frame(self, background=COLORS["surface"], height=84)
@@ -115,13 +185,28 @@ class LivroCaixaApp(tk.Tk):
             foreground=COLORS["muted"],
             background=COLORS["surface"],
         ).pack(anchor="e")
+        sync_row = tk.Frame(status_area, background=COLORS["surface"])
+        sync_row.pack(anchor="e", pady=(2, 0))
         tk.Label(
-            status_area,
-            text="●  Backup em dia",
+            sync_row,
+            textvariable=self.sync_status_var,
             font=FONTS["small"],
             foreground=COLORS["green"],
             background=COLORS["surface"],
-        ).pack(anchor="e", pady=(2, 0))
+        ).pack(side="left", padx=(0, 9))
+        tk.Button(
+            sync_row,
+            text="Atualizar dados",
+            command=self._refresh_current_month,
+            font=FONTS["small"],
+            foreground=COLORS["green"],
+            background=COLORS["surface"],
+            activebackground=COLORS["surface_soft"],
+            activeforeground=COLORS["green"],
+            relief="flat",
+            borderwidth=0,
+            cursor="hand2",
+        ).pack(side="left")
         tk.Frame(self, background=COLORS["border"], height=1).pack(fill="x")
 
     def _build_body(self) -> None:
@@ -422,8 +507,14 @@ class LivroCaixaApp(tk.Tk):
         if dialog.result is None:
             return
 
-        entry = dialog.result
+        try:
+            entry = self.repository.create_entry(dialog.result, self.category_records)
+        except SupabaseError as error:
+            self._show_sync_error("O lançamento não foi salvo", error)
+            return
+
         self.entries.insert(0, entry)
+        self.sync_status_var.set("●  Sincronizado")
         self._recalculate_totals()
         self.income_card.set_value(self.income)
         self.expense_card.set_value(self.expense)
@@ -436,9 +527,54 @@ class LivroCaixaApp(tk.Tk):
         return [entry for entry in self.entries if entry.date == selected_date]
 
     def _save_page_entries(self, selected_date: date, page_entries: list[Entry]) -> None:
+        try:
+            saved_entries = self.repository.replace_day_entries(
+                selected_date,
+                page_entries,
+                self.category_records,
+            )
+        except SupabaseError:
+            self.sync_status_var.set("●  Sem sincronização")
+            raise
         other_dates = [entry for entry in self.entries if entry.date != selected_date]
-        self.entries = page_entries + other_dates
+        self.entries = saved_entries + other_dates
+        self.sync_status_var.set("●  Sincronizado")
         self._recalculate_totals()
+
+    def _load_month_from_cloud(self, month: date) -> None:
+        cloud_entries = self.repository.load_month_entries(month, self.category_records)
+        other_months = [
+            entry
+            for entry in self.entries
+            if entry.date.year != month.year or entry.date.month != month.month
+        ]
+        self.entries = cloud_entries + other_months
+
+    def _refresh_current_month(self) -> None:
+        try:
+            updated_categories = self.repository.load_categories()
+            if not updated_categories:
+                raise SupabaseError("Nenhuma categoria foi encontrada para este usuário.")
+            cloud_entries = self.repository.load_month_entries(
+                self.selected_month,
+                updated_categories,
+            )
+        except SupabaseError as error:
+            self._show_sync_error("Não foi possível atualizar", error)
+            return
+
+        self.category_records = updated_categories
+        self.categories = [category.name for category in self.category_records]
+        other_months = [
+            entry
+            for entry in self.entries
+            if entry.date.year != self.selected_month.year
+            or entry.date.month != self.selected_month.month
+        ]
+        self.entries = cloud_entries + other_months
+        self.sync_status_var.set("●  Sincronizado")
+        self._recalculate_totals()
+        self.show_page(self.active_page)
 
     def _recalculate_totals(self) -> None:
         month_entries = [
@@ -479,7 +615,15 @@ class LivroCaixaApp(tk.Tk):
         return date(month_index // 12, month_index % 12 + 1, 1)
 
     def _set_selected_month(self, value: date, rebuild: bool = True) -> None:
-        self.selected_month = value.replace(day=1)
+        selected_month = value.replace(day=1)
+        try:
+            self._load_month_from_cloud(selected_month)
+        except SupabaseError as error:
+            self._show_sync_error("Não foi possível abrir o mês", error)
+            return
+
+        self.selected_month = selected_month
+        self.sync_status_var.set("●  Sincronizado")
         formatted = self._format_month(self.selected_month)
         self.period_var.set(formatted)
         self.month_selector_var.set(formatted)
@@ -522,25 +666,31 @@ class LivroCaixaApp(tk.Tk):
             return list(self.categories)
 
         previous = list(self.categories)
+        if not dialog.operations:
+            return previous
         try:
-            self.category_store.save(dialog.result)
-        except (OSError, ValueError) as error:
-            messagebox.showerror(
-                "Não foi possível salvar",
-                f"As categorias não puderam ser salvas.\n\n{error}",
-                parent=self,
+            updated_categories = self.repository.manage_categories(dialog.operations)
+            cloud_entries = self.repository.load_month_entries(
+                self.selected_month,
+                updated_categories,
             )
+        except SupabaseError as error:
+            self._show_sync_error("As categorias não puderam ser salvas", error)
             return previous
 
-        self.categories = list(dialog.result)
-        fallback = "Outros" if "Outros" in self.categories else self.categories[0]
-        for operation, old_name, new_name in dialog.operations:
-            for entry in self.entries:
-                if entry.category != old_name:
-                    continue
-                if operation == "rename" and new_name is not None:
-                    entry.category = new_name
-                elif operation == "delete":
-                    entry.category = fallback
+        self.category_records = updated_categories
+        self.categories = [category.name for category in self.category_records]
+        other_months = [
+            entry
+            for entry in self.entries
+            if entry.date.year != self.selected_month.year
+            or entry.date.month != self.selected_month.month
+        ]
+        self.entries = cloud_entries + other_months
+        self.sync_status_var.set("●  Sincronizado")
         self._recalculate_totals()
         return list(self.categories)
+
+    def _show_sync_error(self, title: str, error: Exception) -> None:
+        self.sync_status_var.set("●  Sem sincronização")
+        messagebox.showerror(title, str(error), parent=self)

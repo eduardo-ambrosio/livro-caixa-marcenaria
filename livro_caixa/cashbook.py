@@ -448,12 +448,22 @@ class CashBookSheet(tk.Frame):
                 )
             )
 
-        self.save_entries(self.current_date, parsed)
-        self.status_var.set(f"Página de {self.current_date.strftime('%d/%m/%Y')} salva nesta execução.")
+        try:
+            self.save_entries(self.current_date, parsed)
+        except Exception as error:
+            self.status_var.set("Não foi possível sincronizar esta página.")
+            messagebox.showerror(
+                "A página não foi salva",
+                str(error),
+                parent=self,
+            )
+            return False
+
+        self.status_var.set(f"Página de {self.current_date.strftime('%d/%m/%Y')} sincronizada.")
         if not silent:
             messagebox.showinfo(
                 "Página salva",
-                "Os lançamentos foram salvos nesta execução do protótipo.",
+                "Os lançamentos foram salvos no banco online.",
                 parent=self,
             )
         return True

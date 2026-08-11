@@ -113,6 +113,7 @@ class CategoryManagerDialog(tk.Toplevel):
             messagebox.showwarning("Categoria existente", "Essa categoria já está na lista.", parent=self)
             return
         self.categories.append(name)
+        self.operations.append(("add", "", name))
         self._refresh_list(len(self.categories) - 1)
 
     def _rename(self) -> None:

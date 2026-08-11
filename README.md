@@ -1,10 +1,10 @@
 # Livro Caixa da Marcenaria
 
-Protótipo em Python com Tkinter, criado para funcionar diretamente no PyCharm e sem pacotes externos.
+Aplicativo desktop em Python com Tkinter, criado para funcionar diretamente no PyCharm e sem pacotes externos.
 
 A identidade visual utiliza a logo Cozinhas Formatec na barra superior do sistema.
 
-> Todos os nomes, valores e lançamentos exibidos nesta versão são dados fictícios de demonstração.
+Os lançamentos são armazenados no Supabase e protegidos por autenticação e Row Level Security (RLS).
 
 ## Executar no PyCharm
 
@@ -13,7 +13,7 @@ A identidade visual utiliza a logo Cozinhas Formatec na barra superior do sistem
 3. Abra `app.py`.
 4. Clique no botão verde **Run** ou pressione `Shift+F10`.
 
-Também é possível executar pelo terminal do PyCharm:
+Antes da primeira execução, copie `.env.example` para `.env` e preencha o Project URL e a Publishable key do Supabase. Também é possível executar pelo terminal do PyCharm:
 
 ```powershell
 python app.py
@@ -38,7 +38,7 @@ Dê dois cliques no arquivo `Abrir Livro Caixa.cmd` existente na pasta principal
 - Resumo filtrado pelo mês escolhido, com atalhos para mês anterior, próximo e mês atual.
 - Sincronização do mês selecionado com a folha de lançamentos.
 - Categorias personalizáveis: adicionar, renomear e excluir diretamente nos Lançamentos.
-- Lista de categorias salva localmente para as próximas aberturas.
+- Categorias sincronizadas entre os computadores autorizados.
 - Fontes ampliadas e linhas mais altas para facilitar a leitura.
 - Linha inteira destacada ao selecionar qualquer célula, com indicação do número da linha.
 - Data ampliada e em negrito na folha de lançamentos.
@@ -50,15 +50,17 @@ Dê dois cliques no arquivo `Abrir Livro Caixa.cmd` existente na pasta principal
 - Alternância no Resumo entre gráfico de linhas e gráfico de pizza com percentuais.
 - Gráfico de pizza ampliado e centralizado na área disponível.
 - Fatias e legendas clicáveis para consultar datas, históricos e valores da categoria.
+- Login com sessão protegida pelo Windows e opção de manter o acesso conectado.
 - Livro diário de lançamentos em formato de planilha, inspirado no modelo em papel.
 - Tela de lançamentos sem cabeçalho redundante, deixando mais linhas visíveis.
 - Colunas de documento, histórico, categoria, entradas e saídas.
 - Navegação entre células com Enter e entre dias pelos botões da folha.
 
-Os dados ainda são demonstrativos e não permanecem depois que o programa fecha. A próxima etapa será conectar o aplicativo ao Supabase para persistência e sincronização entre computadores.
+Os dados de cada usuário ficam isolados pelas políticas de segurança do banco. O aplicativo usa somente a Publishable key; chaves administrativas não fazem parte do executável.
 
 ## Banco de dados
 
-O esquema inicial seguro do Supabase está versionado em
-`supabase/migrations/20260811_001_initial_schema.sql`. Ele cria as categorias,
-os lançamentos, os índices e as políticas de acesso por usuário.
+As migrações do Supabase estão versionadas em `supabase/migrations/`:
+
+1. `20260811_001_initial_schema.sql`: tabelas, índices, categorias padrão e políticas RLS.
+2. `20260811_002_sync_functions.sql`: salvamento atômico das folhas e edição segura das categorias.
