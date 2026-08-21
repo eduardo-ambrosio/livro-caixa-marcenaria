@@ -9,10 +9,13 @@ from tkinter import messagebox, ttk
 from .cashbook import CashBookSheet
 from .category_dialog import CategoryManagerDialog
 from .category_details_dialog import CategoryDetailsDialog
+from .category_watch import calculate_category_watch_totals
+from .category_watch_dialog import CategoryWatchDialog
 from .config import ConfigurationError, load_supabase_config
 from .entry_dialog import NewEntryDialog
 from .login_dialog import LoginDialog
 from .models import Entry
+from .preferences_store import PreferencesStore
 from .session_store import SessionStore
 from .supabase_client import CategoryRecord, SupabaseClient, SupabaseError, SupabaseRepository
 from .theme import COLORS, FONTS, configure_ttk, make_button
@@ -61,6 +64,10 @@ class LivroCaixaApp(tk.Tk):
             self.destroy()
             return
 
+        user_id = self.client.session.user_id if self.client.session is not None else "default"
+        self.preferences_store = PreferencesStore(user_id)
+        self.watched_category_ids = self.preferences_store.load_watched_category_ids()
+
         self.categories: list[str] = []
         self.category_records: list[CategoryRecord] = []
         self.entries: list[Entry] = []
@@ -82,6 +89,7 @@ class LivroCaixaApp(tk.Tk):
             if not self.category_records:
                 raise SupabaseError("Nenhuma categoria foi encontrada para este usuário.")
             self.categories = [category.name for category in self.category_records]
+            self._reconcile_watched_categories()
             self._load_month_from_cloud(self.selected_month)
         except SupabaseError as error:
             messagebox.showerror(
@@ -372,7 +380,7 @@ class LivroCaixaApp(tk.Tk):
             text="Todas as despesas",
             variable=self.show_all_expenses_var,
             command=self._toggle_all_expenses,
-            font=("Segoe UI", 11, "bold"),
+            font=("Segoe UI", 12, "bold"),
             foreground=COLORS["text"],
             background=COLORS["surface"],
             activeforeground=COLORS["text"],
@@ -407,18 +415,32 @@ class LivroCaixaApp(tk.Tk):
         ).pack(anchor="w", padx=20, pady=(0, 16))
         self._update_chart_mode_controls()
 
-        recent_panel = BorderedFrame(lower)
-        recent_panel.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        watch_panel = BorderedFrame(lower)
+        watch_panel.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        watch_header = tk.Frame(watch_panel.body, background=COLORS["surface"])
+        watch_header.pack(fill="x", padx=20, pady=(15, 3))
         tk.Label(
-            recent_panel.body,
-            text="Últimos lançamentos",
+            watch_header,
+            text="Categorias para acompanhar",
             font=FONTS["section"],
             foreground=COLORS["text"],
             background=COLORS["surface"],
-        ).pack(anchor="w", padx=20, pady=(18, 9))
-        self.recent_list = tk.Frame(recent_panel.body, background=COLORS["surface"])
-        self.recent_list.pack(fill="both", expand=True, padx=20, pady=(0, 12))
-        self._populate_recent_entries()
+        ).pack(side="left", anchor="center")
+        make_button(
+            watch_header,
+            "Escolher categorias",
+            self._choose_watched_categories,
+        ).pack(side="right")
+        tk.Label(
+            watch_panel.body,
+            text=f"Entradas e saídas de {self._format_month(self.selected_month).lower()}.",
+            font=FONTS["small"],
+            foreground=COLORS["muted"],
+            background=COLORS["surface"],
+        ).pack(anchor="w", padx=20, pady=(0, 10))
+        self.watch_content = tk.Frame(watch_panel.body, background=COLORS["surface"])
+        self.watch_content.pack(fill="both", expand=True, padx=20, pady=(0, 16))
+        self._populate_category_watch()
 
     def _build_placeholder(self, page: str) -> None:
         self._build_header(page, "Esta tela será construída na próxima etapa do protótipo.", False)
@@ -442,59 +464,151 @@ class LivroCaixaApp(tk.Tk):
         ).pack(pady=(0, 18))
         make_button(center, "Voltar ao resumo", lambda: self.show_page("Resumo"), primary=True).pack()
 
-    def _populate_recent_entries(self) -> None:
-        for child in self.recent_list.winfo_children():
+    def _populate_category_watch(self) -> None:
+        for child in self.watch_content.winfo_children():
             child.destroy()
 
-        month_entries = [
-            entry
-            for entry in self.entries
-            if entry.date.year == self.selected_month.year
-            and entry.date.month == self.selected_month.month
-        ]
-        month_entries.sort(key=lambda entry: entry.date, reverse=True)
-        if not month_entries:
+        totals = calculate_category_watch_totals(
+            self.category_records,
+            self.watched_category_ids,
+            self.entries,
+            self.selected_month,
+        )
+        if not totals:
             tk.Label(
-                self.recent_list,
-                text="Nenhum lançamento registrado neste mês.",
+                self.watch_content,
+                text=(
+                    "Nenhuma categoria selecionada.\n\n"
+                    "Clique em “Escolher categorias” para montar este acompanhamento."
+                ),
                 font=FONTS["body"],
                 foreground=COLORS["muted"],
                 background=COLORS["surface"],
-            ).pack(anchor="center", pady=42)
+                justify="center",
+                wraplength=390,
+            ).pack(expand=True, pady=35)
             return
 
-        for entry in month_entries[:5]:
-            row = tk.Frame(self.recent_list, background=COLORS["surface"], height=61)
-            row.pack(fill="x")
-            row.pack_propagate(False)
+        combined_income = sum((total.income for total in totals), Decimal("0"))
+        combined_expense = sum((total.expense for total in totals), Decimal("0"))
+        footer = tk.Frame(self.watch_content, background=COLORS["surface_soft"])
+        footer.pack(side="bottom", fill="x", pady=(10, 0))
+        self._watch_total(footer, "ENTRADAS SELECIONADAS", combined_income, COLORS["green"]).pack(
+            side="left", fill="x", expand=True, padx=(12, 6), pady=9
+        )
+        self._watch_total(footer, "SAÍDAS SELECIONADAS", combined_expense, COLORS["red"]).pack(
+            side="left", fill="x", expand=True, padx=(6, 12), pady=9
+        )
 
-            text_area = tk.Frame(row, background=COLORS["surface"])
-            text_area.pack(side="left", fill="both", expand=True, pady=9)
-            tk.Label(
-                text_area,
-                text=entry.description,
-                font=FONTS["body_bold"],
-                foreground=COLORS["text"],
-                background=COLORS["surface"],
-            ).pack(anchor="w")
-            day = "Hoje" if entry.date == date.today() else entry.date.strftime("%d/%m")
-            tk.Label(
-                text_area,
-                text=f"{day} · {entry.category}",
-                font=FONTS["small"],
-                foreground=COLORS["muted"],
-                background=COLORS["surface"],
-            ).pack(anchor="w", pady=(2, 0))
+        table_holder = tk.Frame(self.watch_content, background=COLORS["border"], padx=1, pady=1)
+        table_holder.pack(fill="both", expand=True)
+        style = ttk.Style(self)
+        style.configure(
+            "CategoryWatch.Treeview",
+            font=("Segoe UI", 12),
+            rowheight=38,
+            background=COLORS["surface"],
+            fieldbackground=COLORS["surface"],
+            foreground=COLORS["text"],
+            borderwidth=0,
+        )
+        style.configure(
+            "CategoryWatch.Treeview.Heading",
+            font=("Segoe UI", 11, "bold"),
+            background=COLORS["surface_soft"],
+            foreground=COLORS["text"],
+            padding=7,
+        )
+        style.map(
+            "CategoryWatch.Treeview",
+            background=[("selected", COLORS["row_active"])],
+            foreground=[("selected", COLORS["text"])],
+        )
 
-            sign = "+ " if entry.is_income else "− "
-            tk.Label(
-                row,
-                text=sign + format_brl(entry.value),
-                font=FONTS["body_bold"],
-                foreground=COLORS["green"] if entry.is_income else COLORS["red"],
-                background=COLORS["surface"],
-            ).pack(side="right", padx=(10, 0))
-            tk.Frame(self.recent_list, background=COLORS["border"], height=1).pack(fill="x")
+        columns = ("category", "income", "expense")
+        table = ttk.Treeview(
+            table_holder,
+            columns=columns,
+            show="headings",
+            style="CategoryWatch.Treeview",
+            selectmode="browse",
+        )
+        scrollbar = ttk.Scrollbar(table_holder, orient="vertical", command=table.yview)
+        table.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        table.pack(side="left", fill="both", expand=True)
+        table.heading("category", text="CATEGORIA")
+        table.heading("income", text="ENTRADAS")
+        table.heading("expense", text="SAÍDAS")
+        table.column("category", width=190, minwidth=130, anchor="w")
+        table.column("income", width=125, minwidth=105, anchor="e", stretch=False)
+        table.column("expense", width=125, minwidth=105, anchor="e", stretch=False)
+
+        for total in totals:
+            table.insert(
+                "",
+                "end",
+                values=(
+                    total.name,
+                    format_brl(total.income),
+                    format_brl(total.expense),
+                ),
+            )
+
+    def _watch_total(
+        self,
+        parent: tk.Misc,
+        title: str,
+        value: Decimal,
+        color: str,
+    ) -> tk.Frame:
+        container = tk.Frame(parent, background=COLORS["surface_soft"])
+        tk.Label(
+            container,
+            text=title,
+            font=("Segoe UI", 10, "bold"),
+            foreground=COLORS["muted"],
+            background=COLORS["surface_soft"],
+        ).pack(anchor="w")
+        tk.Label(
+            container,
+            text=format_brl(value),
+            font=FONTS["section"],
+            foreground=color,
+            background=COLORS["surface_soft"],
+        ).pack(anchor="w", pady=(2, 0))
+        return container
+
+    def _choose_watched_categories(self) -> None:
+        dialog = CategoryWatchDialog(
+            self,
+            self.category_records,
+            self.watched_category_ids,
+        )
+        self.wait_window(dialog)
+        if dialog.result is None:
+            return
+        self.watched_category_ids = set(dialog.result)
+        try:
+            self.preferences_store.save_watched_category_ids(self.watched_category_ids)
+        except OSError:
+            messagebox.showwarning(
+                "Seleção não foi salva",
+                "As categorias serão exibidas agora, mas talvez precisem ser escolhidas novamente ao abrir o programa.",
+                parent=self,
+            )
+        self._populate_category_watch()
+
+    def _reconcile_watched_categories(self) -> None:
+        valid_ids = {category.id for category in self.category_records}
+        filtered_ids = self.watched_category_ids & valid_ids
+        if filtered_ids == self.watched_category_ids:
+            return
+        self.watched_category_ids = filtered_ids
+        try:
+            self.preferences_store.save_watched_category_ids(self.watched_category_ids)
+        except OSError:
+            pass
 
     def _set_expense_chart_mode(self, mode: str) -> None:
         self.expense_chart_mode = "pie" if mode == "pie" else "bars"
@@ -594,7 +708,7 @@ class LivroCaixaApp(tk.Tk):
         self.balance_card.set_value(self.income - self.expense)
         self.expense_chart.values = self.expenses_by_category
         self.expense_chart.draw()
-        self._populate_recent_entries()
+        self._populate_category_watch()
 
     def _entries_for_date(self, selected_date: date) -> list[Entry]:
         return [entry for entry in self.entries if entry.date == selected_date]
@@ -638,6 +752,7 @@ class LivroCaixaApp(tk.Tk):
 
         self.category_records = updated_categories
         self.categories = [category.name for category in self.category_records]
+        self._reconcile_watched_categories()
         other_months = [
             entry
             for entry in self.entries
@@ -753,6 +868,7 @@ class LivroCaixaApp(tk.Tk):
 
         self.category_records = updated_categories
         self.categories = [category.name for category in self.category_records]
+        self._reconcile_watched_categories()
         other_months = [
             entry
             for entry in self.entries

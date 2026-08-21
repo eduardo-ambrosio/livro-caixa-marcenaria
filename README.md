@@ -54,6 +54,7 @@ Dê dois cliques no arquivo `Abrir Livro Caixa.cmd` existente na pasta principal
 - Ícone próprio do Livro Caixa, com o “F” laranja da Formatec e um livro aberto.
 - Cartão de entradas clicável, com consulta de datas, históricos, categorias e valores do mês.
 - Opção “Todas as despesas” para alternar entre as maiores categorias e a lista completa no gráfico.
+- Painel “Categorias para acompanhar” com seleção múltipla, entradas, saídas e totais combinados do mês.
 - Livro diário de lançamentos em formato de planilha, inspirado no modelo em papel.
 - Tela de lançamentos sem cabeçalho redundante, deixando mais linhas visíveis.
 - Colunas de histórico, categoria, entradas e saídas.
