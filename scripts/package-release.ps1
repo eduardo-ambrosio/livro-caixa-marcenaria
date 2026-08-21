@@ -15,7 +15,17 @@ if ($LASTEXITCODE -ne 0 -or -not $version) {
     throw "Nao foi possivel identificar a versao do aplicativo."
 }
 
-$packageName = "LivroCaixa-v$version-Windows"
+$builtVersionFile = Join-Path $applicationFolder "VERSAO.txt"
+if (-not (Test-Path -LiteralPath $builtVersionFile)) {
+    throw "O build nao possui VERSAO.txt. Execute scripts\build-windows.ps1 novamente."
+}
+
+$builtVersion = (Get-Content -LiteralPath $builtVersionFile -Raw).Trim()
+if ($builtVersion -ne $version) {
+    throw "O build e o codigo-fonte possuem versoes diferentes ($builtVersion e $version). Execute scripts\build-windows.ps1 novamente."
+}
+
+$packageName = "LivroCaixa-v$version-Windows81-x64"
 $packageFolder = Join-Path $releaseRoot $packageName
 $packageAppFolder = Join-Path $packageFolder "app"
 $zipPath = Join-Path $releaseRoot "$packageName.zip"
@@ -38,10 +48,11 @@ if ($packagedEnv -match "sb_secret_|service_role|SUPABASE_DB_URL|postgresql://")
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
 }
-Compress-Archive -Path (Join-Path $packageFolder "*") -DestinationPath $zipPath -CompressionLevel Optimal
+Compress-Archive -Path $packageFolder -DestinationPath $zipPath -CompressionLevel Optimal
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
 
 Write-Output "PACOTE_OK"
 Write-Output "VERSAO=$version"
+Write-Output "SISTEMA=Windows 8.1 x64"
 Write-Output "ZIP=$zipPath"
 Write-Output "SHA256=$hash"

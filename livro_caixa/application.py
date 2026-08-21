@@ -346,9 +346,10 @@ class LivroCaixaApp(tk.Tk):
         expenses_body = expenses_panel.body
         chart_header = tk.Frame(expenses_body, background=COLORS["surface"])
         chart_header.pack(fill="x", padx=20, pady=(15, 4))
+        self.chart_title_var = tk.StringVar(value="Onde mais gastou")
         tk.Label(
             chart_header,
-            text="Onde mais gastou",
+            textvariable=self.chart_title_var,
             font=FONTS["section"],
             foreground=COLORS["text"],
             background=COLORS["surface"],
@@ -365,13 +366,36 @@ class LivroCaixaApp(tk.Tk):
             lambda: self._set_expense_chart_mode("bars"),
         )
         self.chart_bars_button.pack(side="right", padx=(0, 7))
+        self.show_all_expenses_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            chart_header,
+            text="Todas as despesas",
+            variable=self.show_all_expenses_var,
+            command=self._toggle_all_expenses,
+            font=("Segoe UI", 11, "bold"),
+            foreground=COLORS["text"],
+            background=COLORS["surface"],
+            activeforeground=COLORS["text"],
+            activebackground=COLORS["surface"],
+            selectcolor=COLORS["surface"],
+            cursor="hand2",
+            takefocus=True,
+            padx=7,
+        ).pack(side="right", padx=(0, 9))
+        chart_area = tk.Frame(expenses_body, background=COLORS["surface"])
+        chart_area.pack(fill="both", expand=True, padx=20)
+        chart_scrollbar = ttk.Scrollbar(chart_area, orient="vertical")
+        chart_scrollbar.pack(side="right", fill="y")
         self.expense_chart = ExpenseChart(
-            expenses_body,
+            chart_area,
             self.expenses_by_category,
             mode=self.expense_chart_mode,
+            show_all=self.show_all_expenses_var.get(),
             on_category_click=self._show_category_details,
         )
-        self.expense_chart.pack(fill="both", expand=True, padx=20)
+        self.expense_chart.configure(yscrollcommand=chart_scrollbar.set)
+        chart_scrollbar.configure(command=self.expense_chart.yview)
+        self.expense_chart.pack(side="left", fill="both", expand=True)
         self.expense_chart.after_idle(self.expense_chart.draw)
         self.chart_hint_var = tk.StringVar()
         tk.Label(
@@ -477,6 +501,10 @@ class LivroCaixaApp(tk.Tk):
         self.expense_chart.set_mode(self.expense_chart_mode)
         self._update_chart_mode_controls()
 
+    def _toggle_all_expenses(self) -> None:
+        self.expense_chart.set_show_all(self.show_all_expenses_var.get())
+        self._update_chart_mode_controls()
+
     def _update_chart_mode_controls(self) -> None:
         buttons = (
             (self.chart_bars_button, self.expense_chart_mode == "bars"),
@@ -490,9 +518,22 @@ class LivroCaixaApp(tk.Tk):
                 activeforeground=COLORS["white"] if active else COLORS["text"],
             )
         self.chart_hint_var.set(
-            "Clique em uma fatia ou categoria para ver todos os lançamentos."
-            if self.expense_chart_mode == "pie"
-            else "Comparação dos valores gastos por categoria."
+            (
+                "Clique em uma fatia ou categoria para ver todos os lançamentos."
+                if self.expense_chart_mode == "pie"
+                else "Comparação dos valores gastos por categoria."
+            )
+            if self.show_all_expenses_var.get()
+            else (
+                "Clique em uma fatia ou categoria para ver os lançamentos das maiores despesas."
+                if self.expense_chart_mode == "pie"
+                else "As 5 categorias com maiores gastos no mês."
+            )
+        )
+        self.chart_title_var.set(
+            "Todas as despesas"
+            if self.show_all_expenses_var.get()
+            else "Onde mais gastou"
         )
 
     def _show_category_details(

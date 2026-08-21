@@ -53,6 +53,7 @@ Dê dois cliques no arquivo `Abrir Livro Caixa.cmd` existente na pasta principal
 - Login com sessão protegida pelo Windows e opção de manter o acesso conectado.
 - Ícone próprio do Livro Caixa, com o “F” laranja da Formatec e um livro aberto.
 - Cartão de entradas clicável, com consulta de datas, históricos, categorias e valores do mês.
+- Opção “Todas as despesas” para alternar entre as maiores categorias e a lista completa no gráfico.
 - Livro diário de lançamentos em formato de planilha, inspirado no modelo em papel.
 - Tela de lançamentos sem cabeçalho redundante, deixando mais linhas visíveis.
 - Colunas de histórico, categoria, entradas e saídas.
@@ -85,6 +86,8 @@ Depois, gere o executável e o ZIP:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1
 ```
 
-O ZIP pronto fica em `release\LivroCaixa-v<VERSÃO>-Windows.zip`. Depois de extrair o ZIP inteiro, execute `Instalar Livro Caixa.cmd`. O instalador copia o aplicativo para a pasta de programas do usuário e cria atalhos na Área de Trabalho e no menu Iniciar.
+O ZIP pronto fica em `release\LivroCaixa-v<VERSÃO>-Windows81-x64.zip`. Depois de extrair o ZIP inteiro, execute `Instalar Livro Caixa.cmd`. O instalador copia o aplicativo para a pasta de programas do usuário e cria atalhos na Área de Trabalho e no menu Iniciar.
+
+O pacote especial `Windows81-x64` mantém a compatibilidade comprovada no computador da marcenaria. Quando o Universal C Runtime estiver ausente, o instalador baixa o KB2999226 diretamente da Microsoft, confere o SHA-256 oficial e instala as bibliotecas somente dentro da pasta do Livro Caixa.
 
 As pastas de compilação e os pacotes gerados não são enviados ao GitHub. O arquivo `.env` também permanece fora do repositório.

@@ -108,6 +108,7 @@ class ExpenseChart(tk.Canvas):
         parent: tk.Misc,
         values: dict[str, Decimal],
         mode: str = "bars",
+        show_all: bool = False,
         on_category_click: CategoryClick | None = None,
     ) -> None:
         super().__init__(
@@ -118,6 +119,7 @@ class ExpenseChart(tk.Canvas):
         )
         self.values = values
         self.mode = mode
+        self.show_all = show_all
         self.on_category_click = on_category_click
         self.bind("<Configure>", lambda _event: self.draw())
 
@@ -125,8 +127,16 @@ class ExpenseChart(tk.Canvas):
         self.mode = "pie" if mode == "pie" else "bars"
         self.draw()
 
+    def set_show_all(self, show_all: bool) -> None:
+        self.show_all = bool(show_all)
+        self.draw()
+
     def draw(self) -> None:
         self.delete("all")
+        viewport_width = max(self.winfo_width(), 420)
+        viewport_height = max(self.winfo_height(), 220)
+        self.configure(scrollregion=(0, 0, viewport_width, viewport_height))
+        self.yview_moveto(0)
         if not self.values:
             self.create_text(
                 max(self.winfo_width(), 300) / 2,
@@ -148,11 +158,36 @@ class ExpenseChart(tk.Canvas):
         if self.mode == "pie":
             self._draw_pie(items)
         else:
-            self._draw_bars(items[:5])
+            self._draw_bars(self._visible_bar_items(items, self.show_all))
+
+    @staticmethod
+    def _visible_bar_items(
+        items: list[tuple[str, Decimal]],
+        show_all: bool,
+    ) -> list[tuple[str, Decimal]]:
+        return items if show_all else items[:5]
+
+    @staticmethod
+    def _visible_pie_items(
+        items: list[tuple[str, Decimal]],
+        show_all: bool,
+    ) -> list[tuple[str, Decimal, tuple[str, ...]]]:
+        pie_items: list[tuple[str, Decimal, tuple[str, ...]]] = [
+            (name, value, (name,)) for name, value in items
+        ]
+        if show_all or len(pie_items) <= 6:
+            return pie_items
+
+        remaining = sum((value for _name, value, _categories in pie_items[5:]), Decimal("0"))
+        remaining_categories = tuple(name for name, _value, _categories in pie_items[5:])
+        return pie_items[:5] + [("Demais categorias", remaining, remaining_categories)]
 
     def _draw_bars(self, items: list[tuple[str, Decimal]]) -> None:
         maximum = max(value for _, value in items) or Decimal("1")
         width = max(self.winfo_width(), 420)
+        viewport_height = max(self.winfo_height(), 220)
+        content_height = max(viewport_height, len(items) * 43 + 10)
+        self.configure(scrollregion=(0, 0, width, content_height))
         label_font = tkfont.Font(font=FONTS["body"])
         longest_label = max(label_font.measure(name) for name, _value in items)
         label_width = min(max(longest_label + 24, 120), int(width * 0.42))
@@ -201,13 +236,7 @@ class ExpenseChart(tk.Canvas):
             y += 43
 
     def _draw_pie(self, items: list[tuple[str, Decimal]]) -> None:
-        pie_items: list[tuple[str, Decimal, tuple[str, ...]]] = [
-            (name, value, (name,)) for name, value in items
-        ]
-        if len(pie_items) > 6:
-            remaining = sum((value for _name, value, _categories in pie_items[5:]), Decimal("0"))
-            remaining_categories = tuple(name for name, _value, _categories in pie_items[5:])
-            pie_items = pie_items[:5] + [("Demais categorias", remaining, remaining_categories)]
+        pie_items = self._visible_pie_items(items, self.show_all)
 
         total = sum((value for _name, value, _categories in pie_items), Decimal("0"))
         if total <= 0:
@@ -215,6 +244,8 @@ class ExpenseChart(tk.Canvas):
 
         width = max(self.winfo_width(), 420)
         height = max(self.winfo_height(), 220)
+        content_height = max(height, len(pie_items) * 35 + 20)
+        self.configure(scrollregion=(0, 0, width, content_height))
         pie_region_width = int(width * 0.52)
         diameter = min(height - 30, pie_region_width - 24, 315)
         left = max(12, (pie_region_width - diameter) // 2)
@@ -262,7 +293,7 @@ class ExpenseChart(tk.Canvas):
         details_width = 145
         name_width = max(legend_width - details_width - 28, 45)
         row_height = min(35, max(28, (height - 20) // len(pie_items)))
-        y = max(16, (height - row_height * len(pie_items)) // 2 + row_height // 2)
+        y = max(16, (content_height - row_height * len(pie_items)) // 2 + row_height // 2)
 
         for index, (name, value, categories) in enumerate(pie_items):
             percentage = float(value / total) * 100
